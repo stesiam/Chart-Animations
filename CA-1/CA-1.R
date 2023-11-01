@@ -4,51 +4,96 @@ library(readr)
 library(dplyr)
 library(tidyr)
 library(ggplot2)
+library(ggtext)
+library(ggrepel)
 library(gganimate)
+library(av)
+library(ggimage)
+library(ggflags)
 
-options(repr.plot.width=5, repr.plot.height=5)
 
+#library(extrafont)
 
-# Import data
+library(lubridate)
 
-dataset = read_csv("CA-1/unemployment_data.csv", skip = 3)
+library(sysfonts)
+library(showtext)
 
-# Keep Greece's and OECD's values
+# Useful article on colors with R : https://r-charts.com/colors/
+font_add_google(name = "Lilita One", family = "title")
+font_add_google(name = "Amiri", family = "subtitle")
+font_add_google(name = "EB Garamond", family = "rest")
+font_add_google("Nova Mono", "nova")
+
+showtext_auto()
+
+dataset = read_csv("test/unemployment_eu_gr.csv")
+
 
 dataset = dataset %>%
-  filter(`Country Name` == "Greece" | `Country Name` == "OECD members")
+  select(geo, TIME_PERIOD,OBS_VALUE,age) %>%
+  rename(`Country Name` = "geo", Year = "TIME_PERIOD", value = "OBS_VALUE") %>%
+  filter(Year >= 2000)
 
-# Erase not important variables
+dataset$age = ifelse(dataset$age == "Y15-74", "Total Unemployment", "Youth Unemployment (<25)")
 
-dataset = dataset %>%
-  select(-`Country Code`, -`Indicator Code`, -`Indicator Name`)
-  
-# Clean data
+dataset$flags = ifelse(dataset$`Country Name` == "EL", "gr", "eu")
 
-dataset = dataset %>%
-  tidyr::pivot_longer(!`Country Name`, names_to = "Year")
+dataset$Year = as.Date(as.character(dataset$Year), format="%Y")
 
-# Erase observations (rows) with NA values
+dataset$Year = year(dataset$Year)
 
-dataset = na.omit(dataset)
 
-dataset = dataset %>% as_tibble()
-
-# Change Year var (char -> num)
-
-dataset$Year = as.numeric(dataset$Year)
-
-anim = ggplot(dataset, aes(x = Year, y = value)) +
-  geom_line(aes(color = `Country Name`)) +
+animation = ggplot(dataset, aes(x = Year, y = value)) +
+  geom_line(aes(color = `Country Name`, linewidth =2)) +
+  facet_wrap(~age) +
   geom_point(aes(color = `Country Name`)) +
+  geom_text(aes(x = Year + 2.2, y = value, label = if_else(age == "Total Unemployment",if_else((Year >= 2000) & (Year <=2009),"", sprintf("%.1f",value)),""), group = `Country Name`),
+            size = 10, family = "nova", fontface = "bold") +
+  geom_text(aes(x = Year + 2.2, y = value, label = if_else(age == "Youth Unemployment (<25)", sprintf("%.1f",value),""), group = `Country Name`),
+            size = 10, family = "nova", fontface = "bold") +
+  geom_text_repel(aes(x = Year + 2.2, y = value, label = if_else(age == "Total Unemployment",if_else((Year < 2000) | (Year >2009),"", sprintf("%.1f", value)),""), group = `Country Name`),
+                  size = 10, family = "nova", fontface = "bold",box.padding = 0.5,direction = "y") +
+  geom_flag(aes(x = Year, y = value, group = `Country Name`, country = flags,size = 30)) +
+  scale_country() +
+  scale_size(range = c(0, 30)) +
   labs(
-    title = "Unemployment in Greece over the years",
-    subitle = "Percentage of unemployment people of total labor force",
-    caption = "stesiam, 2023 | Data : World Bank"
+    title = "<b>Unemployment in <span style = 'color: dodgerblue; font-weight:bold;'>Greece</span> and 
+    <span style = 'color: #ffdd00; font-weight:bold;'>EU</span> over the years</b></span>",
+    x = "",
+    subtitle = "Year: {round(frame_along, digits = 0)}",
+    caption = "stesiam, 2023 | Data: Eurostat",
+    y = ""
   ) +
-  theme_classic() +
+  scale_color_manual(values = c("dodgerblue1", "#ffdd00")) +
+  scale_y_continuous(breaks = c(seq(0, 60, 10)), expand = expansion(add = 0.15, mult = 0.1)) +
+  theme_classic(base_size = 50,
+                base_family = "rest") +
+  theme(
+    plot.title = element_markdown(hjust = 0.5, family = "title", lineheight = 1),
+    plot.subtitle = element_text(hjust = 0.5, family = "nova",size = 30),
+    legend.position = "none",
+    legend.title = element_blank(),
+    plot.background = element_rect(fill = "cornsilk"),
+    panel.background = element_rect(fill = "cornsilk"),
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    plot.caption.position = "panel",
+    plot.caption = element_text(hjust=0.5)
+  ) +
   transition_reveal(Year) +
-  ease_aes("linear") +
+  ease_aes("cubic-in-out") +
   enter_fade()
 
-anim_save("CA-1/CA-1.gif", anim)
+animation
+
+animate(animation,
+        duration = 40,
+        width = 1920, height = 1080,
+        renderer = av_renderer(),
+        rewind = F,
+        fps = 30,
+        start_pause = 30,
+        end_pause = 50)
+
+anim_save("CA-1/CA-1.mp4")
